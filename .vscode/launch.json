@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "GeMap训练调试",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/single_train.py",
+            "args": [
+                "${workspaceFolder}/projects/configs/gemap/gemap_simple_r50_110ep.py",
+                "--gpus",
+                "1"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CONDA_DEFAULT_ENV": "gemap", // 指定 Conda 环境
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "cwd": "${workspaceFolder}",
+            // 中文注释说明
+            "description": "GeMap模型训练调试配置"
+        }
+    ]
+}

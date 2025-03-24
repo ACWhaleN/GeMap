@@ -1,2 +1,5 @@
 shapely==1.8.5.post1
 av2
+ipython==8.12.0
+yapf==0.31
+nccl==2.10.3

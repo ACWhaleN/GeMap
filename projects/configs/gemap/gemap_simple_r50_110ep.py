@@ -204,7 +204,7 @@ model = dict(
             pc_range=point_cloud_range))))
 
 dataset_type = 'CustomNuScenesLocalMapDataset'
-data_root = 'data/hdmap/nuscenes/'
+data_root = '/root/Projects/HDMap/GeMap/data/hdmap/nuscenes/'
 file_client_args = dict(backend='disk')
 
 
@@ -242,8 +242,8 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=4,
-    workers_per_gpu=4,
+    samples_per_gpu=1,
+    workers_per_gpu=1,
     train=dict(
         type=dataset_type,
         data_root=data_root,

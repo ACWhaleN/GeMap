@@ -3,9 +3,15 @@ networkx>=2.2,<2.3
 # we may unlock the verion of numba in the future
 numba==0.48.0
 numpy<1.20.0
-nuscenes-devkit
-plyfile
-scikit-image
+nuscenes-devkit==1.1.9
+plyfile==1.0
+scikit-image==0.19.2
+scikit-learn==1.2.2
 # by default we also use tensorboard to log results
 tensorboard
 trimesh>=2.35.39,<2.35.40
+matplotlib==3.5.2
+pandas==1.4.3
+rpds_py==0.19.1
+ipykernel==6.19
+anyio==3.7.1

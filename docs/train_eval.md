@@ -13,6 +13,7 @@ where "checkpoint" is used only for evaluation. Before evaluation, you should tr
 Train GeMap with 8 GPUs 
 ```
 bash tools/dist_train.sh projects/configs/gemap/gemap_simple_r50_110ep.py 8 20000
+bash tools/dist_train.sh projects/configs/gemap/gemap_simple_r50_110ep.py 1 20000
 ```
 
 Evaluate GeMap with 1 GPU
