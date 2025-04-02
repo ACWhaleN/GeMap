@@ -17,6 +17,8 @@ from typing import List, Tuple, Union
 from mmdet3d.core.bbox.box_np_ops import points_cam2img
 from mmdet3d.datasets import NuScenesDataset
 
+from .vector_local_map import VectorizedLocalMap
+
 nus_categories = ('car', 'truck', 'trailer', 'bus', 'construction_vehicle',
                   'bicycle', 'motorcycle', 'pedestrian', 'traffic_cone',
                   'barrier')
@@ -88,7 +90,7 @@ def create_nuscenes_infos(root_path,
             len(train_scenes), len(val_scenes)))
 
     train_nusc_infos, val_nusc_infos = _fill_trainval_infos(
-        nusc, nusc_can_bus, train_scenes, val_scenes, test, max_sweeps=max_sweeps)
+        nusc, nusc_can_bus, train_scenes, val_scenes, root_path, test, max_sweeps=max_sweeps)
 
     metadata = dict(version=version)
     if test:
@@ -180,8 +182,10 @@ def _fill_trainval_infos(nusc,
                          nusc_can_bus,
                          train_scenes,
                          val_scenes,
+                         root_path,
                          test=False,
-                         max_sweeps=10):
+                         max_sweeps=10
+                         ):
     """Generate the train/val infos from the raw data.
 
     Args:
@@ -199,6 +203,18 @@ def _fill_trainval_infos(nusc,
     train_nusc_infos = []
     val_nusc_infos = []
     frame_idx = 0
+    # 初始化矢量化地图处理器
+    vector_map = VectorizedLocalMap(
+        dataroot=root_path,  
+        patch_size=(60, 60),  # 根据需求调整
+        map_classes=['divider', 'ped_crossing', 'boundary'],
+        sample_dist=1,
+        num_samples=250,
+        padding=False,
+        fixed_ptsnum_per_line=20,
+        padding_value=-10000
+    )
+
     for sample in mmcv.track_iter_progress(nusc.sample):
         map_location = nusc.get('log', nusc.get('scene', sample['scene_token'])['log_token'])['location']
 
@@ -208,6 +224,12 @@ def _fill_trainval_infos(nusc,
                              sd_rec['calibrated_sensor_token'])
         pose_record = nusc.get('ego_pose', sd_rec['ego_pose_token'])
         lidar_path, boxes, _ = nusc.get_sample_data(lidar_token)
+                # 生成矢量化地图数据
+        vector_data = vector_map.gen_vectorized_samples(
+            location=map_location,
+            lidar2global_translation=pose_record['translation'],
+            lidar2global_rotation=pose_record['rotation']
+        )
 
         mmcv.check_file_exist(lidar_path)
         can_bus = _get_can_bus_info(nusc, nusc_can_bus, sample)
@@ -227,6 +249,8 @@ def _fill_trainval_infos(nusc,
             'lidar2ego_rotation': cs_record['rotation'],
             'ego2global_translation': pose_record['translation'],
             'ego2global_rotation': pose_record['rotation'],
+            # 将矢量化数据存入 info 字典
+            'vectorized_map' : vector_data,
             'timestamp': sample['timestamp'],
         }
 

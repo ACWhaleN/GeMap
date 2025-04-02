@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/tools/single_train.py",
             "args": [
-                "${workspaceFolder}/projects/configs/gemap/gemap_simple_r50_110ep.py",
+                "${workspaceFolder}/projects/configs/gemap/gemap_pivot_r50_110ep.py",
                 "--gpus",
                 "1"
             ],

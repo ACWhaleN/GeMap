@@ -794,7 +794,7 @@ class VectorizedLocalMap(object):
                                                       origin=(patch_x, patch_y), use_radians=False)
                         new_polygon = affinity.affine_transform(new_polygon,
                                                                 [1.0, 0.0, 0.0, 1.0, -patch_x, -patch_y])
-                        if new_polygon.geom_type is 'Polygon':
+                        if new_polygon.geom_type == 'Polygon':
                             new_polygon = MultiPolygon([new_polygon])
                         polygon_list.append(new_polygon)
 
@@ -809,7 +809,7 @@ class VectorizedLocalMap(object):
                                                       origin=(patch_x, patch_y), use_radians=False)
                         new_polygon = affinity.affine_transform(new_polygon,
                                                                 [1.0, 0.0, 0.0, 1.0, -patch_x, -patch_y])
-                        if new_polygon.geom_type is 'Polygon':
+                        if new_polygon.geom_type == 'Polygon':
                             new_polygon = MultiPolygon([new_polygon])
                         polygon_list.append(new_polygon)
 
@@ -819,7 +819,7 @@ class VectorizedLocalMap(object):
         if layer_name not in self.map_explorer[location].map_api.non_geometric_line_layers:
             raise ValueError("{} is not a line layer".format(layer_name))
 
-        if layer_name is 'traffic_light':
+        if layer_name == 'traffic_light':
             return None
 
         patch_x = patch_box[0]
@@ -860,7 +860,7 @@ class VectorizedLocalMap(object):
                                                       origin=(patch_x, patch_y), use_radians=False)
                     new_polygon = affinity.affine_transform(new_polygon,
                                                             [1.0, 0.0, 0.0, 1.0, -patch_x, -patch_y])
-                    if new_polygon.geom_type is 'Polygon':
+                    if new_polygon.geom_type == 'Polygon':
                         new_polygon = MultiPolygon([new_polygon])
                     polygon_list.append(new_polygon)
 
@@ -935,10 +935,16 @@ class CustomNuScenesLocalMapDataset(CustomNuScenesDataset):
         self.padding_value = padding_value
         self.fixed_num = fixed_ptsnum_per_line
         self.eval_use_same_gt_sample_num_flag = eval_use_same_gt_sample_num_flag
-        self.vector_map = VectorizedLocalMap(kwargs['data_root'], 
-                            patch_size=self.patch_size, map_classes=self.MAPCLASSES, 
-                            fixed_ptsnum_per_line=fixed_ptsnum_per_line,
-                            padding_value=self.padding_value)
+        if 'pivot' not in kwargs['ann_file']:
+            self.vector_map = VectorizedLocalMap(
+                kwargs['data_root'], 
+                patch_size=self.patch_size,
+                map_classes=self.MAPCLASSES,
+                fixed_ptsnum_per_line=fixed_ptsnum_per_line,
+                padding_value=self.padding_value
+            )
+        else:
+            self.vector_map = None
         self.is_vis_on_test = False
         self.noise = noise
         self.noise_std = noise_std
@@ -995,12 +1001,14 @@ class CustomNuScenesLocalMapDataset(CustomNuScenesDataset):
         location = input_dict['map_location']
         ego2global_translation = input_dict['ego2global_translation']
         ego2global_rotation = input_dict['ego2global_rotation']
-        anns_results = self.vector_map.gen_vectorized_samples(location, lidar2global_translation, lidar2global_rotation)
-        
+        if self.vector_map !=None: 
+            anns_results = self.vector_map.gen_vectorized_samples(location, lidar2global_translation, lidar2global_rotation)
+        else: 
+            anns_results=input_dict['vectorized_map']
         '''
         anns_results, type: dict
             'gt_vecs_pts_loc': list[num_vecs], vec with num_points*2 coordinates
-            'gt_vecs_pts_num': list[num_vecs], vec with num_points
+            'gt_vecs_pts_num': list[num_vecs], vec with num_points # Not this var
             'gt_vecs_label': list[num_vecs], vec with cls index
         '''
         gt_vecs_label = to_tensor(anns_results['gt_vecs_label'])
@@ -1131,6 +1139,8 @@ class CustomNuScenesLocalMapDataset(CustomNuScenesDataset):
             timestamp=info['timestamp'],
             map_location = info['map_location'],
         )
+        if 'vectorized_map' in info:
+            input_dict['vectorized_map'] = info['vectorized_map']
         # lidar to ego transform
         lidar2ego = np.eye(4).astype(np.float32)
         lidar2ego[:3, :3] = Quaternion(info["lidar2ego_rotation"]).rotation_matrix
