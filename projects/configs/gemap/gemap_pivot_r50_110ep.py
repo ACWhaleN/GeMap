@@ -185,6 +185,13 @@ model = dict(
             num_pts=fixed_ptsnum_per_pred_line,
             pc_range=point_cloud_range,
             loss_type='l1',
+        ),
+        loss_dvs = dict(
+            type='DVSLoss',
+            pc_range=[-50, -50, 50, 50],
+            coe_endpts=2.0,  # 增大端点权重增强系数
+            collinear_pts_coe=0.5,
+            loss_weights=[3.0, 1.0, 0.2]
         )),
     # model training and testing settings
     train_cfg=dict(pts=dict(

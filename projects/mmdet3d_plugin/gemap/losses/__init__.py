@@ -5,4 +5,5 @@ from .map_loss import OrderedPtsL1Loss, PtsL1Loss
 from .map_loss import OrderedPtsSmoothL1Cost, OrderedPtsL1Loss
 from .map_loss import PtsDirCosLoss
 from .geo_loss import GeometricLoss
+from .dvs_loss import DVSLoss
 from .simple_loss import SimpleLoss

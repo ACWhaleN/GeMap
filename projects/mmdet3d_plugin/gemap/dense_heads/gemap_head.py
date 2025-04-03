@@ -95,6 +95,13 @@ class GeMapHead(DETRHead):
                         pc_range=[-15.0, -30.0,-10.0, 15.0, 30.0, 10.0],
                         loss_type='l1',
                     ),
+                 loss_dvs = dict(
+                    type='DVSLoss',
+                    pc_range=[-50, -50, 50, 50],
+                    coe_endpts=2.0,  # 增大端点权重增强系数
+                    collinear_pts_coe=0.5,
+                    loss_weights=[3.0, 1.0, 0.2]
+                ),
                  debug=False,
                  intra_loss_weight=None,
                  inter_loss_weight=None,
@@ -146,11 +153,19 @@ class GeMapHead(DETRHead):
         self.loss_pts = build_loss(loss_pts)
         self.loss_dir = build_loss(loss_dir)
         self.loss_geo = build_loss(loss_geo)
+        # 添加DVS Loss初始化
+        self.loss_dvs = build_loss(loss_dvs) if loss_dvs is not None else None
         num_query = num_vec * num_pts_per_vec
         self.num_query = num_query
         self.num_vec = num_vec
         self.num_pts_per_vec = num_pts_per_vec
         self.num_pts_per_gt_vec = num_pts_per_gt_vec
+        # 添加点分类分支
+        self.pts_cls_branch = nn.Sequential(
+            Linear(self.embed_dims, self.embed_dims),
+            nn.ReLU(),
+            Linear(self.embed_dims, 1)
+        )
         self._init_layers()
 
     def _init_layers(self):
@@ -319,7 +334,9 @@ class GeMapHead(DETRHead):
                                             .view(bs,self.num_vec, self.num_pts_per_vec,-1)
                                             .mean(2))
             tmp = self.reg_branches[lvl](hs[lvl])
-
+            # 生成点分类logits [B, num_vec, num_pts]
+            pts_logits = self.pts_cls_branch(hs[lvl].view(
+            tmp.shape[0], self.num_vec, self.num_pts_per_vec, -1)).squeeze(-1)
             # TODO: check the shape of reference
             assert reference.shape[-1] == 2
             tmp[..., 0:2] += reference[..., 0:2]
@@ -341,6 +358,7 @@ class GeMapHead(DETRHead):
             'enc_cls_scores': None,
             'enc_bbox_preds': None,
             'enc_pts_preds': None,
+            'pts_logits': pts_logits
         }
         return outs
     
@@ -576,6 +594,7 @@ class GeMapHead(DETRHead):
                     gt_bboxes_list,
                     gt_labels_list,
                     gt_shifts_pts_list,
+                    pts_logits,
                     gt_bboxes_ignore_list=None):
         """"Loss function for outputs from a single decoder layer of a single
         feature level.
@@ -732,7 +751,10 @@ class GeMapHead(DETRHead):
             #     loss_geo_2 = intra_loss + inter_loss
         else:
             pass
-
+        loss_dvs = self.loss_dvs(
+    {'pts_preds': pts_preds, 'pts_logits': pts_logits},
+    normalized_pts_targets
+)['dvs_loss']
         if digit_version(TORCH_VERSION) >= digit_version('1.8'):
             loss_cls = torch.nan_to_num(loss_cls)
             loss_bbox = torch.nan_to_num(loss_bbox)
@@ -740,7 +762,8 @@ class GeMapHead(DETRHead):
             loss_pts = torch.nan_to_num(loss_pts)
             loss_dir = torch.nan_to_num(loss_dir)
             loss_geo_2 = torch.nan_to_num(loss_geo_2)
-        return loss_cls, loss_bbox, loss_iou, loss_pts, loss_dir, loss_geo_2
+            loss_dvs = torch.nan_to_num(loss_dvs)
+        return loss_cls, loss_bbox, loss_iou, loss_pts, loss_dir, loss_geo_2, loss_dvs
 
     @force_fp32(apply_to=('preds_dicts'))
     def loss(self,
@@ -790,6 +813,8 @@ class GeMapHead(DETRHead):
         enc_bbox_preds = preds_dicts['enc_bbox_preds']
         enc_pts_preds  = preds_dicts['enc_pts_preds']
 
+        pts_logits = preds_dicts['pts_logits']
+
         num_dec_layers = len(all_cls_scores)
         device = gt_labels_list[0].device
 
@@ -822,9 +847,9 @@ class GeMapHead(DETRHead):
             gt_bboxes_ignore for _ in range(num_dec_layers)
         ]
 
-        losses_cls, losses_bbox, losses_iou, losses_pts, losses_dir, losses_geo_2 = multi_apply(
+        losses_cls, losses_bbox, losses_iou, losses_pts, losses_dir, losses_geo_2, losses_dvs = multi_apply(
             self.loss_single, all_cls_scores, all_bbox_preds, all_pts_preds,
-            all_gt_bboxes_list, all_gt_labels_list, all_gt_shifts_pts_list,
+            all_gt_bboxes_list, all_gt_labels_list, all_gt_shifts_pts_list,pts_logits,
             all_gt_bboxes_ignore_list)
 
         loss_dict = dict()
@@ -834,7 +859,7 @@ class GeMapHead(DETRHead):
                 for i in range(len(all_gt_labels_list))
             ]
             # TODO bug here
-            enc_loss_cls, enc_losses_bbox, enc_losses_iou, enc_losses_pts, enc_losses_dir = \
+            enc_loss_cls, enc_losses_bbox, enc_losses_iou, enc_losses_pts, enc_losses_dir, loss_dvs = \
                 self.loss_single(enc_cls_scores, enc_bbox_preds, enc_pts_preds,
                                  gt_bboxes_list, binary_labels_list, gt_pts_list,gt_bboxes_ignore)
             loss_dict['enc_loss_cls'] = enc_loss_cls
@@ -850,21 +875,24 @@ class GeMapHead(DETRHead):
         loss_dict['loss_pts'] = losses_pts[-1]
         loss_dict['loss_dir'] = losses_dir[-1]
         loss_dict['loss_geo_2'] = losses_geo_2[-1]
+        loss_dict['loss_dvs'] = losses_dvs[-1]
         # loss from other decoder layers
         num_dec_layer = 0
-        for loss_cls_i, loss_bbox_i, loss_iou_i, loss_pts_i, loss_dir_i, loss_geo_2_i in zip(
+        for loss_cls_i, loss_bbox_i, loss_iou_i, loss_pts_i, loss_dir_i, loss_geo_2_i, loss_dvs_i in zip(
                                             losses_cls[:-1],
                                             losses_bbox[:-1],
                                             losses_iou[:-1],
                                             losses_pts[:-1],
                                             losses_dir[:-1],
-                                            losses_geo_2[:-1]):
+                                            losses_geo_2[:-1],
+                                            losses_dvs[:-1]):
                 loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i
                 loss_dict[f'd{num_dec_layer}.loss_bbox'] = loss_bbox_i
                 loss_dict[f'd{num_dec_layer}.loss_iou'] = loss_iou_i
                 loss_dict[f'd{num_dec_layer}.loss_pts'] = loss_pts_i
                 loss_dict[f'd{num_dec_layer}.loss_dir'] = loss_dir_i
                 loss_dict[f'd{num_dec_layer}.loss_geo_2'] = loss_geo_2_i
+                loss_dict[f'd{num_dec_layer}.loss_dvs'] = loss_dvs_i
                 num_dec_layer += 1
         return loss_dict
 
@@ -896,4 +924,3 @@ class GeMapHead(DETRHead):
             ret_list.append([bboxes, scores, labels, pts])
 
         return ret_list
-
